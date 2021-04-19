@@ -1,0 +1,2081 @@
+main.dart
+
+import 'package:flutter/material.dart';
+import 'package:awaaz/pages/admin.dart';
+import 'package:awaaz/pages/user.dart';
+
+void main() => runApp(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    initialRoute: '/user',
+    routes: {
+      '/user': (context) => User(),
+      '/admin': (context) => Admin(),
+    }
+));
+
+#############################################################################################################
+#############################################################################################################
+
+admin.dart
+
+import 'package:flutter/material.dart';
+import 'package:awaaz/car.dart';
+import 'package:awaaz/dbhelper.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:translator/translator.dart';
+import 'package:awaaz/language.dart';
+
+class Utility {
+  static Image imageFromBase64String(String base64String) {
+    return Image.memory(
+      base64Decode(base64String),
+      fit: BoxFit.fill,
+    );
+  }
+
+  static Uint8List dataFromBase64String(String base64String) {
+    return base64Decode(base64String);
+  }
+
+  static String base64String(Uint8List data) {
+    return base64Encode(data);
+  }
+}
+
+void main() => runApp(MyApp());
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AWAAZ',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: Admin(),
+    );
+  }
+}
+class Admin extends StatefulWidget {
+  @override
+  _AdminState createState() => _AdminState();
+}
+
+class _AdminState extends State<Admin> {
+  File _image;
+  String _imagepath;
+  final dbHelper = DatabaseHelper.instance;
+  //String txt;
+  String text;
+  final FlutterTts flutterTts = FlutterTts();
+  GoogleTranslator translator = GoogleTranslator();
+  String lang = 'en';
+  String frequency = "n";
+  var _val = false;
+  var _valu = false;
+
+  List<Car> cars = [];
+  List<Car> carsByName = [];
+
+  //controllers used in insert operation UI
+  TextEditingController nameController = TextEditingController();
+
+  //controllers used in update operation UI
+  TextEditingController nameUpdateController = TextEditingController();
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = new GlobalKey<ScaffoldState>();
+
+  void _showMessageInScaffold(String message){
+    _scaffoldKey.currentState.showSnackBar(
+        SnackBar(
+          content: Text(message),
+        )
+    );
+  }
+  @override
+
+  void initState() {
+    super.initState();
+    _queryAll();
+  }
+
+  Widget build(BuildContext context) {
+    Future _speak(txt) async{
+      await flutterTts.setPitch(1);
+      await flutterTts.setVolume(1);
+      //await flutterTts.setVoice("hi-x-sfg#male_1-local");
+      await flutterTts.setLanguage("hi");
+      await flutterTts.speak(txt);
+      //print(await flutterTts.getLanguages);
+    }
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        key: _scaffoldKey,
+        appBar: AppBar(
+          bottom: TabBar(
+            tabs: [
+              Tab(
+                text: "My AWAAZ",
+              ),
+              Tab(
+                text: "Add AWAAZ",
+              ),
+            ],
+          ),
+          title: Text('AWAAZ'),
+        ),
+        body: TabBarView(
+          children: [
+            Container(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: cars.length + 1,
+                itemExtent: 75.0,
+                itemBuilder: (BuildContext context, int index) {
+                  if (index == cars.length) {
+                    return Column(
+                      children: [
+                        SizedBox(height: 10,),
+                      ],
+                    );
+                  }
+                  Uint8List bytes = base64Decode(cars[index].miles);
+                  return Card(
+                    child: ListTile(
+                      // leading: new Image.memory(bytes,width: 50,height: 50,),
+                      leading: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: 100,
+                          minHeight: 500,
+                          maxWidth: 300,
+                          maxHeight: 500,
+                        ),
+                        child:
+                        Image.memory((bytes), fit: BoxFit.cover),),
+                      onTap: (){
+                        setState(() {
+                          text = cars[index].name;
+                          void _translate(lang) {
+                            translator.translate(text, to:lang).then((output){
+                              setState(() {
+                                text = output.toString();
+                                print(text);
+                                _speak(text);
+                              });
+                            });
+                          }
+                          _translate(lang);
+                        });
+                      },
+                      title: Text(
+                        cars[index].name,
+                        style:TextStyle(fontSize: 24, fontWeight: FontWeight.bold
+                        ),
+                      ),
+                      //subtitle: Text(cars[index].freq),
+                      trailing: ButtonBar(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FloatingActionButton(
+                          heroTag:"btn11",
+                            child: Icon(Icons.update),
+                            mini:true,
+                            onPressed:(){
+                              _showDialog() async {
+                                await showDialog<String>(context: context,
+                                  child: new AlertDialog(
+                                    contentPadding: const EdgeInsets.all(16.0),
+                                    content: new Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+
+                                        TextField(
+                                          controller: nameUpdateController,
+                                          decoration: InputDecoration(
+                                            border: OutlineInputBorder(),
+                                            labelText: 'Text',
+                                          ),
+                                        ),
+                                        SizedBox(height: 15,),
+                                        _imagepath != null
+                                            ? CircleAvatar(
+                                          backgroundImage: FileImage(File(_imagepath)),
+                                          radius: 80,
+                                        )
+                                            : CircleAvatar(
+                                          radius: 60,
+                                          backgroundImage: _image != null
+                                              ? FileImage(_image)
+                                              : NetworkImage(
+                                            'https://image.shutterstock.com/image-vector/speech-icon-trendy-flat-style-260nw-675381412.jpg',
+                                          ),
+                                        ),
+                                        CheckboxListTile(
+                                          dense: true,
+                                          title: Text("Add to Favourites"),
+                                          secondary: Icon(Icons.favorite, color: Colors.red,),
+                                          controlAffinity: ListTileControlAffinity.platform,
+                                          value: _valu,
+                                          onChanged: (bool valueU) {
+                                            setState(() {
+                                              _valu = valueU;
+                                              if(frequency=="n"){
+                                                frequency = "y";
+                                                print("$frequency");
+                                              }
+                                              else if(frequency=="y"){
+                                                frequency = "n";
+                                                print("$frequency");
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+
+                                    actions: <Widget>[
+                                      FloatingActionButton(
+                                        heroTag:"btn10",
+                                        onPressed: () {
+                                          PickImage();
+                                        },
+                                        child: Icon(Icons.add_a_photo),
+                                      ),
+
+                                      FloatingActionButton(
+                                        heroTag:"btn5",
+                                        child: Icon(Icons.save),
+                                        onPressed: () {
+                                          int id = cars[index].id;
+                                          String name = nameUpdateController.text;
+                                          String miles = Utility.base64String(_image.readAsBytesSync());
+                                          String freq = frequency;
+                                          _update(id, name, miles, freq);
+                                          if(freq=="y")
+                                          _queryAll();
+                                          Navigator.of(context).pop();
+                                        },
+                                      ),
+                                      FloatingActionButton(
+                                        heroTag:"btn6",
+                                        child:Icon(Icons.clear),
+                                        onPressed: (){
+                                          Navigator.of(context).pop();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                              _showDialog();
+                            },
+                            //backgroundColor: Colors.red,
+                          ),
+                          FloatingActionButton(
+                            heroTag:"btn7",
+                            mini:true ,
+                            child: Icon(Icons.delete),
+                            onPressed: (){
+                              Future<void> _showMyDialog() async {
+                                return showDialog<void>(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  // user must tap button!
+                                  builder: (BuildContext context) {
+                                    return AlertDialog(
+                                      title: Text('Alert'),
+                                      content: SingleChildScrollView(
+                                        child: ListBody(
+                                          children: <Widget>[
+                                            Text('Do you want to delete the selected AWAAZ'),
+                                          ],
+                                        ),
+                                      ),
+                                      actions: <Widget>[
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                          children: [
+                                            FloatingActionButton(
+                                              heroTag:"btn8",
+                                              child: Icon(Icons.done),
+                                              onPressed: (){
+                                                _delete(cars[index].id);
+                                                _queryAll();
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                            SizedBox(width: 50,),
+                                            FloatingActionButton(
+                                              heroTag:"btn9",
+                                              child:Icon(Icons.clear),
+                                              onPressed: (){
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+                              }
+                              _showMyDialog();
+                            },
+                          ),
+                        ],
+                      ),
+
+
+                    ),
+                  );
+                },
+              ),
+            ),
+            /////////////////////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////////////////////
+
+            Center(
+              child: Column(
+                children: <Widget>[
+                  Container(
+                    padding: EdgeInsets.fromLTRB(12, 20, 0, 20),
+                    child: Row(
+                      children: [
+                        Container(
+                          width:290,
+                          child: TextField(
+                            controller: nameController,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(),
+                              labelText: 'Text',
+                            ),
+                          ),
+                        ),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minWidth: 50,
+                            minHeight: 50,
+                            maxWidth: 90,
+                            maxHeight: 50,
+                          ),
+                          child:CheckboxListTile(
+                            dense: true,
+                            secondary: Icon(Icons.favorite, color: Colors.red,),
+                            controlAffinity: ListTileControlAffinity.platform,
+                            value: _val,
+                            onChanged: (bool value) {
+                              setState(() {
+                                _val = value;
+                                if(frequency=="n"){
+                                  frequency = "y";
+                                  print("$frequency");
+                                }
+                                else if(frequency=="y"){
+                                  frequency = "n";
+                                  print("$frequency");
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height:40),
+                  _imagepath != null
+                      ? CircleAvatar(
+                    backgroundImage: FileImage(File(_imagepath)),
+                    radius: 80,
+                  )
+                      : CircleAvatar(
+                    radius: 60,
+                    backgroundImage: _image != null
+                        ? FileImage(_image)
+                        : NetworkImage(
+                      'https://image.shutterstock.com/image-vector/speech-icon-trendy-flat-style-260nw-675381412.jpg',
+                    ),
+                  ),
+                  SizedBox(height:20),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      FloatingActionButton(
+                        heroTag:"btn3",
+                        onPressed: () {
+                          PickImage();
+                        },
+                        child: Icon(Icons.add_a_photo),
+                      ),
+                      FloatingActionButton(
+                        heroTag:"btn4",
+
+                        child: Icon(Icons.save),
+                        onPressed: () {
+                          //List<int> bytes = _image.readAsBytesSync();
+                          String miles = Utility.base64String(_image.readAsBytesSync());
+                          String name = nameController.text;
+                          String freq = frequency;
+                          print("$freq");
+                          _insert(name, miles, freq);
+                          _queryAll();
+                          //print(miles);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _queryAll() async {
+    final allRows = await dbHelper.queryAllRows();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    _showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _queryF() async{
+    final allRows = await dbHelper.queryAllF();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    _showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _insert(name, miles, freq) async {
+    // row to insert
+    Map<String, dynamic> row = {
+      DatabaseHelper.columnName: name,
+      DatabaseHelper.columnMiles: miles,
+      DatabaseHelper.columnFreq: freq,
+    };
+    Car car = Car.fromMap(row);
+    final id = await dbHelper.insert(car);
+    _showMessageInScaffold('Added AWAAZ');
+  }
+
+  void _update(id, name, miles, freq) async {
+    // row to update
+    Car car = Car(id, name, miles, freq);
+    final rowsAffected = await dbHelper.update(car);
+    _showMessageInScaffold('Updated AWAAZ');
+  }
+
+  void _delete(id) async {
+    // Assuming that the number of rows is the id for the last row.
+    final rowsDeleted = await dbHelper.delete(id);
+    _showMessageInScaffold('Deleted AWAAZ');
+  }
+
+  void PickImage() async {
+    var image = await ImagePicker.pickImage(source: ImageSource.gallery);
+    setState(() {
+      _image = image;
+    });
+  }
+  void SaveImage(path) async {
+    SharedPreferences saveimage = await SharedPreferences.getInstance();
+    saveimage.setString("imagepath", path);
+  }
+
+  void LoadImage() async {
+    SharedPreferences saveimage = await SharedPreferences.getInstance();
+    setState(() {
+      _imagepath = saveimage.getString("imagepath");
+    });
+  }
+
+}
+
+##############################################################################################
+##############################################################################################
+
+user.dart
+
+import 'package:flutter/material.dart';
+import 'package:awaaz/car.dart';
+import 'package:awaaz/dbhelper.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:translator/translator.dart';
+import 'package:awaaz/language.dart';
+
+class Utility {
+  static Image imageFromBase64String(String base64String) {
+    return Image.memory(
+      base64Decode(base64String),
+      fit: BoxFit.fill,
+    );
+  }
+
+  static Uint8List dataFromBase64String(String base64String) {
+    return base64Decode(base64String);
+  }
+
+  static String base64String(Uint8List data) {
+    return base64Encode(data);
+  }
+}
+
+void main() => runApp(MyApp());
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AWAAZ',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: User(),
+    );
+  }
+}
+class User extends StatefulWidget {
+  @override
+  _UserState createState() => _UserState();
+}
+
+class _UserState extends State<User> {
+  File _image;
+  String _imagepath;
+  final dbHelper = DatabaseHelper.instance;
+  //String txt;
+  String text;
+  final FlutterTts flutterTts = FlutterTts();
+  GoogleTranslator translator = GoogleTranslator();
+  String lang = 'en';
+
+  List<Car> cars = [];
+  List<Car> carsByName = [];
+
+  List<Languages> languages = [
+    Languages(displayText: 'English', lang: 'en'),
+    Languages(displayText: 'हिंदी', lang: 'hi'),
+    Languages(displayText: 'ಕನ್ನಡ', lang: 'kn'),
+    Languages(displayText: 'தமிழ்', lang: 'ta'),
+    Languages(displayText: 'తెలుగు', lang: 'te'),
+  ];
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = new GlobalKey<ScaffoldState>();
+
+  void _showMessageInScaffold(String message){
+    _scaffoldKey.currentState.showSnackBar(
+        SnackBar(
+          content: Text(message),
+        )
+    );
+  }
+  @override
+
+  void initState() {
+    super.initState();
+    _queryF();
+  }
+
+  Widget build(BuildContext context) {
+    Future _speak(txt) async{
+      await flutterTts.setPitch(1);
+      await flutterTts.setVolume(1);
+      //await flutterTts.setVoice("hi-x-sfg#male_1-local");
+      await flutterTts.setLanguage("hi");
+      await flutterTts.speak(txt);
+      //print(await flutterTts.getLanguages);
+    }
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        key: _scaffoldKey,
+        appBar: AppBar(
+          actions: <Widget>[
+            Padding(
+              padding: EdgeInsets.only(right: 20.0),
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.pushNamed(context, '/admin');
+                },
+                child: Icon(Icons.admin_panel_settings,size:30),
+              ),
+            ),
+          ],
+          bottom: TabBar(
+            tabs: [
+              Tab(
+                text: "My AWAAZ",
+              ),
+              Tab(
+                text: "Language",
+              ),
+            ],
+          ),
+          title: Text('AWAAZ'),
+        ),
+        body: TabBarView(
+          children: [
+            Scaffold(
+              body: ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: cars.length + 1,
+                itemExtent: 75.0,
+                itemBuilder: (BuildContext context, int index) {
+                  if (index == cars.length) {
+                    return Column(
+                      children: [
+                        SizedBox(height: 10,),
+                      ],
+                    );
+                  }
+                  Uint8List bytes = base64Decode(cars[index].miles);
+                  return Card(
+                    child: ListTile(
+                      // leading: new Image.memory(bytes,width: 50,height: 50,),
+                      leading: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: 100,
+                          minHeight: 500,
+                          maxWidth: 300,
+                          maxHeight: 500,
+                        ),
+                        child:
+                        Image.memory((bytes), fit: BoxFit.cover),),
+                      onTap: (){
+                        setState(() {
+                          text = cars[index].name;
+                          void _translate(lang) {
+                            translator.translate(text, to:lang).then((output){
+                              setState(() {
+                                text = output.toString();
+                                print(text);
+                                _speak(text);
+                              });
+                            });
+                          }
+                          _translate(lang);
+                        });
+
+                      },
+                      title: Text(
+                        cars[index].name,
+                        style:TextStyle(fontSize: 24, fontWeight: FontWeight.bold
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              floatingActionButton: ButtonBar(
+                children: [
+                  FloatingActionButton(
+                    heroTag:"btn1",
+                    child: Text("All",style: TextStyle(fontWeight: FontWeight.bold),),
+                    onPressed: (){
+                     setState(() {
+                         _queryAll();
+                     });
+                   },
+                  ),
+                  FloatingActionButton(
+                    heroTag:"btn2",
+                    child:Icon(Icons.favorite),
+                    onPressed: (){
+                      setState(() {
+                        _queryF();
+                      });
+                    },
+                  ),
+                ],
+              )
+
+            ),
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+            Center(
+              child: ListView.builder(
+                itemCount: languages.length,
+                itemBuilder: (BuildContext context, int index){
+                  return Card(
+                    child: ListTile(
+                      onTap: (){
+                        setState(() {
+                          lang = languages[index].lang;
+                        });
+                        _showMessageInScaffold('Language Selected');
+                      },
+                      title: Text(languages[index].displayText, style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _queryAll() async {
+    final allRows = await dbHelper.queryAllRows();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    //_showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _queryF() async{
+    final allRows = await dbHelper.queryAllF();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    //_showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+
+
+  void LoadImage() async {
+    SharedPreferences saveimage = await SharedPreferences.getInstance();
+    setState(() {
+      _imagepath = saveimage.getString("imagepath");
+    });
+  }
+
+}
+
+#################################################################################################
+#################################################################################################
+
+dbhelper.dart
+
+import 'package:awaaz/car.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
+
+class DatabaseHelper {
+
+  static final _databaseName = "cardb.db";
+  static final _databaseVersion = 1;
+
+  static final table = 'cars_table';
+
+  static final columnId = 'id';
+  static final columnName = 'name';
+  static final columnMiles = 'miles';
+
+  // make this a singleton class
+  DatabaseHelper._privateConstructor();
+  static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
+
+  // only have a single app-wide reference to the database
+  static Database _database;
+  Future<Database> get database async {
+    if (_database != null) return _database;
+    // lazily instantiate the db the first time it is accessed
+    _database = await _initDatabase();
+    return _database;
+  }
+
+  // this opens the database (and creates it if it doesn't exist)
+  _initDatabase() async {
+    String path = join(await getDatabasesPath(), _databaseName);
+    return await openDatabase(path,
+        version: _databaseVersion,
+        onCreate: _onCreate);
+  }
+
+  // SQL code to create the database table
+  Future _onCreate(Database db, int version) async {
+    await db.execute('''
+          CREATE TABLE $table (
+            $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+            $columnName TEXT NOT NULL,
+            $columnMiles TEXT NOT NULL
+          )
+          ''');
+  }
+
+  // Helper methods
+
+  // Inserts a row in the database where each key in the Map is a column name
+  // and the value is the column value. The return value is the id of the
+  // inserted row.
+  Future<int> insert(Car car) async {
+    Database db = await instance.database;
+    return await db.insert(table, {'name': car.name, 'miles': car.miles});
+  }
+
+  // All of the rows are returned as a list of maps, where each map is
+  // a key-value list of columns.
+  Future<List<Map<String, dynamic>>> queryAllRows() async {
+    Database db = await instance.database;
+    return await db.query(table);
+  }
+
+  // Queries rows based on the argument received
+  Future<List<Map<String, dynamic>>> queryRows(name) async {
+    Database db = await instance.database;
+    return await db.query(table, where: "$columnName LIKE '%$name%'");
+  }
+
+  // All of the methods (insert, query, update, delete) can also be done using
+  // raw SQL commands. This method uses a raw query to give the row count.
+  Future<int> queryRowCount() async {
+    Database db = await instance.database;
+    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM $table'));
+  }
+
+  // We are assuming here that the id column in the map is set. The other
+  // column values will be used to update the row.
+  Future<int> update(Car car) async {
+    Database db = await instance.database;
+    int id = car.toMap()['id'];
+    return await db.update(table, car.toMap(), where: '$columnId = ?', whereArgs: [id]);
+  }
+
+  // Deletes the row specified by the id. The number of affected rows is
+  // returned. This should be 1 as long as the row exists.
+  Future<int> delete(int id) async {
+    Database db = await instance.database;
+    return await db.delete(table, where: '$columnId = ?', whereArgs: [id]);
+  }
+}
+
+#########################################################################################################
+#########################################################################################################
+
+car.dart
+
+import 'package:awaaz/dbhelper.dart';
+import 'dart:typed_data';
+class Car {
+  int id;
+  String name;
+  String miles;
+
+  Car(this.id, this.name, this.miles);
+
+  Car.fromMap(Map<String, dynamic> map) {
+    id = map['id'];
+    name = map['name'];
+    miles = map['miles'];
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      DatabaseHelper.columnId: id,
+      DatabaseHelper.columnName: name,
+      DatabaseHelper.columnMiles: miles,
+    };
+  }
+}
+
+#########################################################################################################
+#########################################################################################################
+
+language.dart
+
+import 'dart:convert';
+class Languages {
+  String displayText;
+  String lang;
+
+  Languages({this.displayText, this.lang});
+
+  Languages.fromMap(Map<String, dynamic> map) {
+    displayText = map['displayText'];
+    lang = map['lang'];
+  }
+}
+
+###############################################################################################
+###############################################################################################
+###############################################################################################
+###############################################################################################
+admin.dart
+
+
+import 'package:flutter/material.dart';
+import 'package:awaaz/car.dart';
+import 'package:awaaz/dbhelper.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:translator/translator.dart';
+import 'package:awaaz/language.dart';
+
+class Utility {
+  static Image imageFromBase64String(String base64String) {
+    return Image.memory(
+      base64Decode(base64String),
+      fit: BoxFit.fill,
+    );
+  }
+
+  static Uint8List dataFromBase64String(String base64String) {
+    return base64Decode(base64String);
+  }
+
+  static String base64String(Uint8List data) {
+    return base64Encode(data);
+  }
+}
+
+void main() => runApp(MyApp());
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AWAAZ',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: Admin(),
+    );
+  }
+}
+class Admin extends StatefulWidget {
+  @override
+  _AdminState createState() => _AdminState();
+}
+
+class _AdminState extends State<Admin> {
+  File _image;
+  String _imagepath;
+  final dbHelper = DatabaseHelper.instance;
+  //String txt;
+  String text;
+  final FlutterTts flutterTts = FlutterTts();
+  GoogleTranslator translator = GoogleTranslator();
+  String lang = 'en';
+  String frequency = "n";
+  var _val = false;
+  var _valu = false;
+
+  List<Car> cars = [];
+  List<Car> carsByName = [];
+
+  //controller used in insert operation UI
+  TextEditingController nameController = TextEditingController();
+
+  //controller used in update operation UI
+  TextEditingController nameUpdateController = TextEditingController();
+
+  // controller used for search UI
+  TextEditingController queryController = TextEditingController();
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = new GlobalKey<ScaffoldState>();
+
+  void _showMessageInScaffold(String message){
+    _scaffoldKey.currentState.showSnackBar(
+        SnackBar(
+          content: Text(message),
+        )
+    );
+  }
+  @override
+
+  void initState() {
+    super.initState();
+    _queryAll();
+  }
+
+  Widget build(BuildContext context) {
+    Future _speak(txt) async{
+      await flutterTts.setPitch(1);
+      await flutterTts.setVolume(1);
+      //await flutterTts.setVoice("hi-x-sfg#male_1-local");
+      await flutterTts.setLanguage("hi");
+      await flutterTts.speak(txt);
+      //print(await flutterTts.getLanguages);
+    }
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        key: _scaffoldKey,
+        appBar: AppBar(
+          bottom: TabBar(
+            tabs: [
+              Tab(
+                text: "My AWAAZ",
+              ),
+
+              Tab(
+                text: "Search",
+              ),
+
+              Tab(
+                text: "Add AWAAZ",
+              ),
+            ],
+          ),
+          title: Text('AWAAZ'),
+        ),
+        body: TabBarView(
+          children: [
+            Container(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: cars.length + 1,
+                itemExtent: 75.0,
+                itemBuilder: (BuildContext context, int index) {
+                  if (index == cars.length) {
+                    return Column(
+                      children: [
+                        SizedBox(height: 10,),
+                      ],
+                    );
+                  }
+                  Uint8List bytes = base64Decode(cars[index].miles);
+                  return Card(
+                    child: ListTile(
+                      // leading: new Image.memory(bytes,width: 50,height: 50,),
+                      leading: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: 100,
+                          minHeight: 500,
+                          maxWidth: 300,
+                          maxHeight: 500,
+                        ),
+                        child:
+                        Image.memory((bytes), fit: BoxFit.cover),),
+                      onTap: (){
+                        setState(() {
+                          text = cars[index].name;
+                          void _translate(lang) {
+                            translator.translate(text, to:lang).then((output){
+                              setState(() {
+                                text = output.toString();
+                                print(text);
+                                _speak(text);
+                              });
+                            });
+                          }
+                          _translate(lang);
+                        });
+                      },
+                      title: Text(
+                        cars[index].name,
+                        style:TextStyle(fontSize: 24, fontWeight: FontWeight.bold
+                        ),
+                      ),
+                      //subtitle: Text(cars[index].freq),
+                      trailing: ButtonBar(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FloatingActionButton(
+                          heroTag:"btn11",
+                            child: Icon(Icons.update),
+                            mini:true,
+                            onPressed:(){
+                              _showDialog() async {
+                                await showDialog<String>(context: context,
+                                  child: new AlertDialog(
+                                    contentPadding: const EdgeInsets.all(16.0),
+                                    content: new Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+
+                                        TextField(
+                                          controller: nameUpdateController,
+                                          decoration: InputDecoration(
+                                            border: OutlineInputBorder(),
+                                            labelText: 'Text',
+                                          ),
+                                        ),
+                                        SizedBox(height: 15,),
+                                        _imagepath != null
+                                            ? CircleAvatar(
+                                          backgroundImage: FileImage(File(_imagepath)),
+                                          radius: 80,
+                                        )
+                                            : CircleAvatar(
+                                          radius: 60,
+                                          backgroundImage: _image != null
+                                              ? FileImage(_image)
+                                              : NetworkImage(
+                                            'https://image.shutterstock.com/image-vector/speech-icon-trendy-flat-style-260nw-675381412.jpg',
+                                          ),
+                                        ),
+                                        CheckboxListTile(
+                                          dense: true,
+                                          title: Text("Add to Favourites"),
+                                          secondary: Icon(Icons.favorite, color: Colors.red,),
+                                          controlAffinity: ListTileControlAffinity.platform,
+                                          value: _valu,
+                                          onChanged: (bool valueU) {
+                                            setState(() {
+                                              _valu = valueU;
+                                              if(frequency=="n"){
+                                                frequency = "y";
+                                                print("$frequency");
+                                              }
+                                              else if(frequency=="y"){
+                                                frequency = "n";
+                                                print("$frequency");
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+
+                                    actions: <Widget>[
+                                      FloatingActionButton(
+                                        heroTag:"btn10",
+                                        onPressed: () {
+                                          PickImage();
+                                        },
+                                        child: Icon(Icons.add_a_photo),
+                                      ),
+
+                                      FloatingActionButton(
+                                        heroTag:"btn5",
+                                        child: Icon(Icons.save),
+                                        onPressed: () {
+                                          int id = cars[index].id;
+                                          String name = nameUpdateController.text;
+                                          String miles = Utility.base64String(_image.readAsBytesSync());
+                                          String freq = frequency;
+                                          _update(id, name, miles, freq);
+                                          if(freq=="y")
+                                          _queryAll();
+                                          Navigator.of(context).pop();
+                                        },
+                                      ),
+                                      FloatingActionButton(
+                                        heroTag:"btn6",
+                                        child:Icon(Icons.clear),
+                                        onPressed: (){
+                                          Navigator.of(context).pop();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                              _showDialog();
+                            },
+                            //backgroundColor: Colors.red,
+                          ),
+                          FloatingActionButton(
+                            heroTag:"btn7",
+                            mini:true ,
+                            child: Icon(Icons.delete),
+                            onPressed: (){
+                              Future<void> _showMyDialog() async {
+                                return showDialog<void>(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  // user must tap button!
+                                  builder: (BuildContext context) {
+                                    return AlertDialog(
+                                      title: Text('Alert'),
+                                      content: SingleChildScrollView(
+                                        child: ListBody(
+                                          children: <Widget>[
+                                            Text('Do you want to delete the selected AWAAZ'),
+                                          ],
+                                        ),
+                                      ),
+                                      actions: <Widget>[
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                          children: [
+                                            FloatingActionButton(
+                                              heroTag:"btn8",
+                                              child: Icon(Icons.done),
+                                              onPressed: (){
+                                                _delete(cars[index].id);
+                                                _queryAll();
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                            SizedBox(width: 50,),
+                                            FloatingActionButton(
+                                              heroTag:"btn9",
+                                              child:Icon(Icons.clear),
+                                              onPressed: (){
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+                              }
+                              _showMyDialog();
+                            },
+                          ),
+                        ],
+                      ),
+
+
+                    ),
+                  );
+                },
+              ),
+            ),
+            /////////////////////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////////////////////
+            Center(
+              child: Column(
+                children: <Widget>[
+                  Container(
+                    padding: EdgeInsets.all(20),
+                    child: TextField(
+                      controller: queryController,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Text',
+                      ),
+                      onChanged: (texte) {
+                        if (texte.length >= 1) {
+                          setState(() {
+                            _query(texte);
+                          });
+                        } else {
+                          setState(() {
+                            carsByName.clear();
+                          });
+                        }
+                      },
+                    ),
+                    height: 100,
+                  ),
+                  Container(
+                    height: 300,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: carsByName.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        Uint8List bytes = base64Decode(carsByName[index].miles);
+                        return Card(
+                          child: ListTile(
+                            // leading: new Image.memory(bytes,width: 50,height: 50,),
+                            leading: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minWidth: 100,
+                                minHeight: 500,
+                                maxWidth: 300,
+                                maxHeight: 500,
+                              ),
+                              child:
+                              Image.memory((bytes), fit: BoxFit.cover),),
+                            onTap: (){
+                              setState(() {
+                                text = carsByName[index].name;
+                                void _translate(lang) {
+                                  translator.translate(text, to:lang).then((output){
+                                    setState(() {
+                                      text = output.toString();
+                                      print(text);
+                                      _speak(text);
+                                    });
+                                  });
+                                }
+                                _translate(lang);
+                              });
+
+                            },
+                            title: Text(
+                              carsByName[index].name,
+                              style:TextStyle(fontSize: 24, fontWeight: FontWeight.bold
+                              ),
+                            ),
+                            trailing: ButtonBar(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                FloatingActionButton(
+                                  heroTag:"btn11",
+                                  child: Icon(Icons.update),
+                                  mini:true,
+                                  onPressed:(){
+                                    _showDialog() async {
+                                      await showDialog<String>(context: context,
+                                        child: new AlertDialog(
+                                          contentPadding: const EdgeInsets.all(16.0),
+                                          content: new Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: <Widget>[
+
+                                              TextField(
+                                                controller: nameUpdateController,
+                                                decoration: InputDecoration(
+                                                  border: OutlineInputBorder(),
+                                                  labelText: 'Text',
+                                                ),
+                                              ),
+                                              SizedBox(height: 15,),
+                                              _imagepath != null
+                                                  ? CircleAvatar(
+                                                backgroundImage: FileImage(File(_imagepath)),
+                                                radius: 80,
+                                              )
+                                                  : CircleAvatar(
+                                                radius: 60,
+                                                backgroundImage: _image != null
+                                                    ? FileImage(_image)
+                                                    : NetworkImage(
+                                                  'https://image.shutterstock.com/image-vector/speech-icon-trendy-flat-style-260nw-675381412.jpg',
+                                                ),
+                                              ),
+                                              CheckboxListTile(
+                                                dense: true,
+                                                title: Text("Add to Favourites"),
+                                                secondary: Icon(Icons.favorite, color: Colors.red,),
+                                                controlAffinity: ListTileControlAffinity.platform,
+                                                value: _valu,
+                                                onChanged: (bool valueU) {
+                                                  setState(() {
+                                                    _valu = valueU;
+                                                    if(frequency=="n"){
+                                                      frequency = "y";
+                                                      print("$frequency");
+                                                    }
+                                                    else if(frequency=="y"){
+                                                      frequency = "n";
+                                                      print("$frequency");
+                                                    }
+                                                  });
+                                                },
+                                              ),
+                                            ],
+                                          ),
+
+                                          actions: <Widget>[
+                                            FloatingActionButton(
+                                              heroTag:"btn10",
+                                              onPressed: () {
+                                                PickImage();
+                                              },
+                                              child: Icon(Icons.add_a_photo),
+                                            ),
+
+                                            FloatingActionButton(
+                                              heroTag:"btn5",
+                                              child: Icon(Icons.save),
+                                              onPressed: () {
+                                                int id = cars[index].id;
+                                                String name = nameUpdateController.text;
+                                                String miles = Utility.base64String(_image.readAsBytesSync());
+                                                String freq = frequency;
+                                                _update(id, name, miles, freq);
+                                                  _queryAll();
+                                                  _query(name);
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                            FloatingActionButton(
+                                              heroTag:"btn6",
+                                              child:Icon(Icons.clear),
+                                              onPressed: (){
+                                                Navigator.of(context).pop();
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+                                    _showDialog();
+                                  },
+                                  //backgroundColor: Colors.red,
+                                ),
+                                FloatingActionButton(
+                                  heroTag:"btn7",
+                                  mini:true ,
+                                  child: Icon(Icons.delete),
+                                  onPressed: (){
+                                    Future<void> _showMyDialog() async {
+                                      return showDialog<void>(
+                                        context: context,
+                                        barrierDismissible: false,
+                                        // user must tap button!
+                                        builder: (BuildContext context) {
+                                          return AlertDialog(
+                                            title: Text('Alert'),
+                                            content: SingleChildScrollView(
+                                              child: ListBody(
+                                                children: <Widget>[
+                                                  Text('Do you want to delete the selected AWAAZ'),
+                                                ],
+                                              ),
+                                            ),
+                                            actions: <Widget>[
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                                children: [
+                                                  FloatingActionButton(
+                                                    heroTag:"btn8",
+                                                    child: Icon(Icons.done),
+                                                    onPressed: (){
+                                                      _delete(cars[index].id);
+                                                      _query(cars[index].name);
+                                                      _queryAll();
+                                                      Navigator.of(context).pop();
+                                                    },
+                                                  ),
+                                                  SizedBox(width: 50,),
+                                                  FloatingActionButton(
+                                                    heroTag:"btn9",
+                                                    child:Icon(Icons.clear),
+                                                    onPressed: (){
+                                                      Navigator.of(context).pop();
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      );
+                                    }
+                                    _showMyDialog();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            //////////////////////////////////////////////////////////////////////////////////
+            //////////////////////////////////////////////////////////////////////////////////
+
+            Center(
+              child: Column(
+                children: <Widget>[
+                  Container(
+                    padding: EdgeInsets.fromLTRB(12, 20, 0, 20),
+                    child: Row(
+                      children: [
+                        Container(
+                          width:290,
+                          child: TextField(
+                            controller: nameController,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(),
+                              labelText: 'Text',
+                            ),
+                          ),
+                        ),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minWidth: 50,
+                            minHeight: 50,
+                            maxWidth: 90,
+                            maxHeight: 50,
+                          ),
+                          child:CheckboxListTile(
+                            dense: true,
+                            secondary: Icon(Icons.favorite, color: Colors.red,),
+                            controlAffinity: ListTileControlAffinity.platform,
+                            value: _val,
+                            onChanged: (bool value) {
+                              setState(() {
+                                _val = value;
+                                if(frequency=="n"){
+                                  frequency = "y";
+                                  print("$frequency");
+                                }
+                                else if(frequency=="y"){
+                                  frequency = "n";
+                                  print("$frequency");
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height:40),
+                  _imagepath != null
+                      ? CircleAvatar(
+                    backgroundImage: FileImage(File(_imagepath)),
+                    radius: 80,
+                  )
+                      : CircleAvatar(
+                    radius: 60,
+                    backgroundImage: _image != null
+                        ? FileImage(_image)
+                        : NetworkImage(
+                      'https://image.shutterstock.com/image-vector/speech-icon-trendy-flat-style-260nw-675381412.jpg',
+                    ),
+                  ),
+                  SizedBox(height:20),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      FloatingActionButton(
+                        heroTag:"btn3",
+                        onPressed: () {
+                          PickImage();
+                        },
+                        child: Icon(Icons.add_a_photo),
+                      ),
+                      FloatingActionButton(
+                        heroTag:"btn4",
+
+                        child: Icon(Icons.save),
+                        onPressed: () {
+                          //List<int> bytes = _image.readAsBytesSync();
+                          String miles = Utility.base64String(_image.readAsBytesSync());
+                          String name = nameController.text;
+                          String freq = frequency;
+                          print("$freq");
+                          _insert(name, miles, freq);
+                          _queryAll();
+                          //print(miles);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _queryAll() async {
+    final allRows = await dbHelper.queryAllRows();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    _showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _queryF() async{
+    final allRows = await dbHelper.queryAllF();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    _showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _insert(name, miles, freq) async {
+    // row to insert
+    Map<String, dynamic> row = {
+      DatabaseHelper.columnName: name,
+      DatabaseHelper.columnMiles: miles,
+      DatabaseHelper.columnFreq: freq,
+    };
+    Car car = Car.fromMap(row);
+    final id = await dbHelper.insert(car);
+    _showMessageInScaffold('Added AWAAZ');
+  }
+
+  void _update(id, name, miles, freq) async {
+    // row to update
+    Car car = Car(id, name, miles, freq);
+    final rowsAffected = await dbHelper.update(car);
+    _showMessageInScaffold('Updated AWAAZ');
+  }
+
+  void _delete(id) async {
+    // Assuming that the number of rows is the id for the last row.
+    final rowsDeleted = await dbHelper.delete(id);
+    _showMessageInScaffold('Deleted AWAAZ');
+  }
+
+  void _query(name) async {
+    final allRows = await dbHelper.queryRows(name);
+    carsByName.clear();
+    allRows.forEach((row) => carsByName.add(Car.fromMap(row)));
+  }
+
+  void PickImage() async {
+    var image = await ImagePicker.pickImage(source: ImageSource.gallery);
+    setState(() {
+      _image = image;
+    });
+  }
+  void SaveImage(path) async {
+    SharedPreferences saveimage = await SharedPreferences.getInstance();
+    saveimage.setString("imagepath", path);
+  }
+
+  void LoadImage() async {
+    SharedPreferences saveimage = await SharedPreferences.getInstance();
+    setState(() {
+      _imagepath = saveimage.getString("imagepath");
+    });
+  }
+
+}
+##############################################################################################
+##############################################################################################
+user.dart
+import 'package:flutter/material.dart';
+import 'package:awaaz/car.dart';
+import 'package:awaaz/dbhelper.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:translator/translator.dart';
+import 'package:awaaz/language.dart';
+
+class Utility {
+  static Image imageFromBase64String(String base64String) {
+    return Image.memory(
+      base64Decode(base64String),
+      fit: BoxFit.fill,
+    );
+  }
+
+  static Uint8List dataFromBase64String(String base64String) {
+    return base64Decode(base64String);
+  }
+
+  static String base64String(Uint8List data) {
+    return base64Encode(data);
+  }
+}
+
+void main() => runApp(MyApp());
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AWAAZ',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: User(),
+    );
+  }
+}
+class User extends StatefulWidget {
+  @override
+  _UserState createState() => _UserState();
+}
+
+class _UserState extends State<User> {
+  File _image;
+  String _imagepath;
+  final dbHelper = DatabaseHelper.instance;
+  //String txt;
+  String text;
+  final FlutterTts flutterTts = FlutterTts();
+  GoogleTranslator translator = GoogleTranslator();
+  String lang = 'en';
+
+  List<Car> cars = [];
+  List<Car> carsByName = [];
+
+  TextEditingController queryController = TextEditingController();
+
+  List<Languages> languages = [
+    Languages(displayText: 'English', lang: 'en'),
+    Languages(displayText: 'हिंदी', lang: 'hi'),
+    Languages(displayText: 'ಕನ್ನಡ', lang: 'kn'),
+    Languages(displayText: 'தமிழ்', lang: 'ta'),
+    Languages(displayText: 'తెలుగు', lang: 'te'),
+  ];
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = new GlobalKey<ScaffoldState>();
+
+  void _showMessageInScaffold(String message){
+    _scaffoldKey.currentState.showSnackBar(
+        SnackBar(
+          content: Text(message),
+        )
+    );
+  }
+  @override
+
+  void initState() {
+    super.initState();
+    _queryF();
+  }
+
+  Widget build(BuildContext context) {
+    Future _speak(txt) async{
+      await flutterTts.setPitch(1);
+      await flutterTts.setVolume(1);
+      //await flutterTts.setVoice("hi-x-sfg#male_1-local");
+      await flutterTts.setLanguage("hi");
+      await flutterTts.speak(txt);
+      //print(await flutterTts.getLanguages);
+    }
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        key: _scaffoldKey,
+        appBar: AppBar(
+          actions: <Widget>[
+            Padding(
+              padding: EdgeInsets.only(right: 20.0),
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.pushNamed(context, '/admin');
+                },
+                child: Icon(Icons.admin_panel_settings,size:30),
+              ),
+            ),
+          ],
+          bottom: TabBar(
+            tabs: [
+              Tab(
+                text: "My AWAAZ",
+              ),
+              Tab(
+                text: "Search",
+              ),
+              Tab(
+                text: "Language",
+              ),
+            ],
+          ),
+          title: Text('AWAAZ'),
+        ),
+        body: TabBarView(
+          children: [
+            Scaffold(
+              body: ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: cars.length + 1,
+                itemExtent: 75.0,
+                itemBuilder: (BuildContext context, int index) {
+                  if (index == cars.length) {
+                    return Column(
+                      children: [
+                        SizedBox(height: 10,),
+                      ],
+                    );
+                  }
+                  Uint8List bytes = base64Decode(cars[index].miles);
+                  return Card(
+                    child: ListTile(
+                      // leading: new Image.memory(bytes,width: 50,height: 50,),
+                      leading: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: 100,
+                          minHeight: 500,
+                          maxWidth: 300,
+                          maxHeight: 500,
+                        ),
+                        child:
+                        Image.memory((bytes), fit: BoxFit.cover),),
+                      onTap: (){
+                        setState(() {
+                          text = cars[index].name;
+                          void _translate(lang) {
+                            translator.translate(text, to:lang).then((output){
+                              setState(() {
+                                text = output.toString();
+                                print(text);
+                                _speak(text);
+                              });
+                            });
+                          }
+                          _translate(lang);
+                        });
+
+                      },
+                      title: Text(
+                        cars[index].name,
+                        style:TextStyle(fontSize: 24, fontWeight: FontWeight.bold
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              floatingActionButton: ButtonBar(
+                children: [
+                  FloatingActionButton(
+                    heroTag:"btn1",
+                    child: Text("All",style: TextStyle(fontWeight: FontWeight.bold),),
+                    onPressed: (){
+                     setState(() {
+                         _queryAll();
+                     });
+                   },
+                  ),
+                  FloatingActionButton(
+                    heroTag:"btn2",
+                    child:Icon(Icons.favorite),
+                    onPressed: (){
+                      setState(() {
+                        _queryF();
+                      });
+                    },
+                  ),
+                ],
+              )
+
+            ),
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+            Center(
+              child: Column(
+                children: <Widget>[
+                  Container(
+                    padding: EdgeInsets.all(20),
+                    child: TextField(
+                      controller: queryController,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Text',
+                      ),
+                      onChanged: (text) {
+                        if (text.length >= 2) {
+                          setState(() {
+                            _query(text);
+                          });
+                        } else {
+                          setState(() {
+                            carsByName.clear();
+                          });
+                        }
+                      },
+                    ),
+                    height: 100,
+                  ),
+                  Container(
+                    height: 300,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: carsByName.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        Uint8List bytes = base64Decode(carsByName[index].miles);
+                        return Card(
+                          child: ListTile(
+                            // leading: new Image.memory(bytes,width: 50,height: 50,),
+                            leading: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minWidth: 100,
+                                minHeight: 500,
+                                maxWidth: 300,
+                                maxHeight: 500,
+                              ),
+                              child:
+                              Image.memory((bytes), fit: BoxFit.cover),),
+                            onTap: (){
+                              setState(() {
+                                text = carsByName[index].name;
+                                void _translate(lang) {
+                                  translator.translate(text, to:lang).then((output){
+                                    setState(() {
+                                      text = output.toString();
+                                      print(text);
+                                      _speak(text);
+                                    });
+                                  });
+                                }
+                                _translate(lang);
+                              });
+
+                            },
+                            title: Text(
+                              carsByName[index].name,
+                              style:TextStyle(fontSize: 24, fontWeight: FontWeight.bold
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+            Center(
+              child: ListView.builder(
+                itemCount: languages.length,
+                itemBuilder: (BuildContext context, int index){
+                  return Card(
+                    child: ListTile(
+                      onTap: (){
+                        setState(() {
+                          lang = languages[index].lang;
+                        });
+                        _showMessageInScaffold('Language Selected');
+                      },
+                      title: Text(languages[index].displayText, style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _queryAll() async {
+    final allRows = await dbHelper.queryAllRows();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    //_showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _queryF() async{
+    final allRows = await dbHelper.queryAllF();
+    cars.clear();
+    allRows.forEach((row) => cars.add(Car.fromMap(row)));
+    //_showMessageInScaffold('Refreshed');
+    setState(() {});
+  }
+
+  void _query(name) async {
+    final allRows = await dbHelper.queryRows(name);
+    carsByName.clear();
+    allRows.forEach((row) => carsByName.add(Car.fromMap(row)));
+  }
+
+  void LoadImage() async {
+    SharedPreferences saveimage = await SharedPreferences.getInstance();
+    setState(() {
+      _imagepath = saveimage.getString("imagepath");
+    });
+  }
+
+}
+
+#################################################################################################
+#################################################################################################
+dbhelper.dart
+import 'package:awaaz/car.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
+
+class DatabaseHelper {
+
+  static final _databaseName = "cardb.db";
+  static final _databaseVersion = 1;
+
+  static final table = 'cars_table';
+
+  static final columnId = 'id';
+  static final columnName = 'name';
+  static final columnMiles = 'miles';
+  static final columnFreq = 'freq';
+
+  // make this a singleton class
+  DatabaseHelper._privateConstructor();
+  static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
+
+  // only have a single app-wide reference to the database
+  static Database _database;
+  Future<Database> get database async {
+    if (_database != null) return _database;
+    // lazily instantiate the db the first time it is accessed
+    _database = await _initDatabase();
+    return _database;
+  }
+
+  // this opens the database (and creates it if it doesn't exist)
+  _initDatabase() async {
+    String path = join(await getDatabasesPath(), _databaseName);
+    return await openDatabase(path,
+        version: _databaseVersion,
+        onCreate: _onCreate);
+  }
+
+  // SQL code to create the database table
+  Future _onCreate(Database db, int version) async {
+    await db.execute('''
+          CREATE TABLE $table (
+            $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+            $columnName TEXT NOT NULL,
+            $columnMiles TEXT NOT NULL,
+            $columnFreq TEXT NOT NULL
+          )
+          ''');
+  }
+
+  // Helper methods
+
+  // Inserts a row in the database where each key in the Map is a column name
+  // and the value is the column value. The return value is the id of the
+  // inserted row.
+  Future<int> insert(Car car) async {
+    Database db = await instance.database;
+    return await db.insert(table, {'name': car.name, 'miles': car.miles, 'freq': car.freq,});
+  }
+
+  // All of the rows are returned as a list of maps, where each map is
+  // a key-value list of columns.
+  Future<List<Map<String, dynamic>>> queryAllRows() async {
+    Database db = await instance.database;
+    return await db.query(table);
+  }
+
+  Future<List<Map<String, dynamic>>> queryAllF() async {
+    Database db = await instance.database;
+    return await db.query(table, where: "$columnFreq = 'y'");
+  }
+
+  // Queries rows based on the argument received
+  Future<List<Map<String, dynamic>>> queryRows(name) async {
+    Database db = await instance.database;
+    return await db.query(table, where: "$columnName LIKE '%$name%'");
+  }
+
+  // All of the methods (insert, query, update, delete) can also be done using
+  // raw SQL commands. This method uses a raw query to give the row count.
+  Future<int> queryRowCount() async {
+    Database db = await instance.database;
+    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM $table'));
+  }
+
+  // We are assuming here that the id column in the map is set. The other
+  // column values will be used to update the row.
+  Future<int> update(Car car) async {
+    Database db = await instance.database;
+    int id = car.toMap()['id'];
+    return await db.update(table, car.toMap(), where: '$columnId = ?', whereArgs: [id]);
+  }
+
+  // Deletes the row specified by the id. The number of affected rows is
+  // returned. This should be 1 as long as the row exists.
+  Future<int> delete(int id) async {
+    Database db = await instance.database;
+    return await db.delete(table, where: '$columnId = ?', whereArgs: [id]);
+  }
+}
